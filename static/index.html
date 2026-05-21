@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>CryptoStream</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0f1117; color: #e2e8f0; font-family: 'Courier New', monospace; padding: 2rem; }
+    h1 { color: #00ff88; font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .subtitle { color: #4a5568; font-size: 0.8rem; margin-bottom: 2rem; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    .card { background: #1a1d27; border: 1px solid #2d3748; border-radius: 8px; padding: 1.5rem; }
+    .card h2 { font-size: 0.75rem; color: #4a5568; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 1rem; }
+    .stat { font-size: 2rem; font-weight: bold; margin-bottom: 0.25rem; }
+    .bid { color: #00ff88; }
+    .ask { color: #ff4466; }
+    .neutral { color: #e2e8f0; }
+    .count { font-size: 0.8rem; color: #4a5568; }
+    input, select {
+      width: 100%; background: #0f1117; border: 1px solid #2d3748;
+      color: #e2e8f0; padding: 0.6rem; border-radius: 4px;
+      margin-bottom: 0.75rem; font-family: monospace; font-size: 0.9rem;
+    }
+    button {
+      width: 100%; padding: 0.75rem; border: none; border-radius: 4px;
+      font-family: monospace; font-weight: bold; font-size: 0.9rem; cursor: pointer;
+    }
+    .buy-btn { background: #00ff88; color: #0f1117; }
+    .sell-btn { background: #ff4466; color: #fff; }
+    .feed { height: 220px; overflow-y: auto; display: flex; flex-direction: column-reverse; }
+    .feed-item { font-size: 0.78rem; padding: 0.4rem 0; border-bottom: 1px solid #1a1d27; color: #4a5568; }
+    .feed-item.match { color: #00ff88; }
+    .feed-item.order { color: #a0aec0; }
+    .status { font-size: 0.7rem; margin-top: 0.5rem; }
+    .connected { color: #00ff88; }
+    .disconnected { color: #ff4466; }
+    label { font-size: 0.75rem; color: #4a5568; display: block; margin-bottom: 0.25rem; }
+  </style>
+</head>
+<body>
+  <h1>⚡ CryptoStream</h1>
+  <p class="subtitle">Real-time order book engine — Rust + Axum + Tokio + WebSockets</p>
+
+  <div class="grid">
+    <!-- Order Book Stats -->
+    <div class="card">
+      <h2>Order Book</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+        <div>
+          <div class="stat bid" id="best-bid">—</div>
+          <div class="count">Best Bid · <span id="bid-count">0</span> orders</div>
+        </div>
+        <div>
+          <div class="stat ask" id="best-ask">—</div>
+          <div class="count">Best Ask · <span id="ask-count">0</span> orders</div>
+        </div>
+      </div>
+      <div style="margin-top:1rem;">
+        <div class="count">Spread</div>
+        <div class="stat neutral" id="spread" style="font-size:1.2rem;">—</div>
+      </div>
+    </div>
+
+    <!-- Place Order -->
+    <div class="card">
+      <h2>Place Order</h2>
+      <label>Side</label>
+      <select id="side">
+        <option value="buy">BUY</option>
+        <option value="sell">SELL</option>
+      </select>
+      <label>Price (USD)</label>
+      <input type="number" id="price" placeholder="45000" />
+      <label>Quantity (BTC)</label>
+      <input type="number" id="qty" placeholder="0.5" step="0.01" />
+      <button class="buy-btn" onclick="placeOrder()">PLACE ORDER</button>
+    </div>
+
+    <!-- Live Feed -->
+    <div class="card" style="grid-column: span 2;">
+      <h2>Live Feed <span id="ws-status" class="status disconnected">● disconnected</span></h2>
+      <div class="feed" id="feed"></div>
+    </div>
+  </div>
+
+  <script>
+    const feed = document.getElementById('feed');
+
+    function addFeedItem(text, type) {
+      const el = document.createElement('div');
+      el.className = `feed-item ${type}`;
+      el.textContent = `${new Date().toLocaleTimeString()} — ${text}`;
+      feed.prepend(el);
+    }
+
+    // WebSocket connection for live updates
+    const ws = new WebSocket('ws://localhost:3000/ws');
+
+    ws.onopen = () => {
+      document.getElementById('ws-status').textContent = '● connected';
+      document.getElementById('ws-status').className = 'status connected';
+    };
+
+    ws.onclose = () => {
+      document.getElementById('ws-status').textContent = '● disconnected';
+      document.getElementById('ws-status').className = 'status disconnected';
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      document.getElementById('best-bid').textContent =
+        data.best_bid ? `$${data.best_bid.toLocaleString()}` : '—';
+      document.getElementById('best-ask').textContent =
+        data.best_ask ? `$${data.best_ask.toLocaleString()}` : '—';
+      document.getElementById('bid-count').textContent = data.bid_count;
+      document.getElementById('ask-count').textContent = data.ask_count;
+      if (data.best_bid && data.best_ask) {
+        const spread = (data.best_ask - data.best_bid).toFixed(2);
+        document.getElementById('spread').textContent = `$${spread}`;
+      }
+    };
+
+    async function placeOrder() {
+      const side = document.getElementById('side').value;
+      const price = parseFloat(document.getElementById('price').value);
+      const quantity = parseFloat(document.getElementById('qty').value);
+      if (!price || !quantity) return alert('Enter price and quantity');
+
+      const btn = document.querySelector('button');
+      btn.textContent = 'PLACING...';
+
+      const res = await fetch('/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ side, price, quantity })
+      });
+      const data = await res.json();
+
+      btn.textContent = 'PLACE ORDER';
+      btn.className = side === 'buy' ? 'buy-btn' : 'sell-btn';
+
+      addFeedItem(`${side.toUpperCase()} ${quantity} BTC @ $${price.toLocaleString()}`, 'order');
+      if (data.match) addFeedItem(`🔥 ${data.match}`, 'match');
+    }
+
+    // Update button style on side change
+    document.getElementById('side').addEventListener('change', (e) => {
+      document.querySelector('button').className =
+        e.target.value === 'buy' ? 'buy-btn' : 'sell-btn';
+    });
+  </script>
+</body>
+</html>
