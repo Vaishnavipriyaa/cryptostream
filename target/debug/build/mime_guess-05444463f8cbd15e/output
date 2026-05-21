@@ -1,1 +1,0 @@
-cargo:rustc-env=MIME_TYPES_GENERATED_PATH=/home/vaishnavi/Desktop/cryptostream/cryptostream/target/debug/build/mime_guess-05444463f8cbd15e/out/mime_types_generated.rs
